@@ -81,6 +81,8 @@ async def agent_loop(agent_name="SimpleAI", server_address="localhost:8000"):
                 # Receive game state
                 state_msg = await websocket.recv()
                 state = json.loads(state_msg)
+
+                print(state)
                 
                 # Check if game over
                 if 'lives' in state:

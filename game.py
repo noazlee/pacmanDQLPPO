@@ -33,6 +33,11 @@ class Game:
         self._n_ghosts = n_ghosts
         self._l_ghosts = l_ghosts
         self._initial_lives = lives
+        
+        # Store original map filename for reference
+        self._original_mapfile = mapfile
+        
+        # Load map only once during initialization
         self.map = Map(mapfile)
         
         self._highscores = [] 
@@ -41,7 +46,7 @@ class Game:
                 self._highscores = json.load(infile)
 
     def info(self):
-        """Return game information as JSON string - fixed version"""
+        """Return game information as JSON string"""
         try:
             info_dict = {
                 "map": self.map.filename,
@@ -102,23 +107,31 @@ class Game:
         return self._highscores
 
     def start(self, player_name):
+        """Start/restart game without reloading the map"""
         logger.debug("Reset world")
         self._player_name = player_name
         self._running = True
         
-        self.map = Map(self.map.filename)
+        # *** CRITICAL FIX: Don't reload the map! ***
+        # OLD CODE: self.map = Map(self.map.filename)  # This was causing constant reloading!
+        # NEW CODE: Just reset the game state, keep existing map
+        
         self._step = 0
-        if self._l_ghosts <=2:
+        
+        # Initialize ghosts
+        if self._l_ghosts <= 2:
             Ghost = Ghost1
         else:
             Ghost = Ghost2
-        self._ghosts = [Ghost(i, self.map, level=self._l_ghosts) for i in range(0,self._n_ghosts)]
+        self._ghosts = [Ghost(i, self.map, level=self._l_ghosts) for i in range(0, self._n_ghosts)]
+        
+        # Reset game state using existing map data
         self._pacman = self.map.pacman_spawn
-        self._energy = self.map.energy
-        self._boost = self.map.boost
+        self._energy = list(self.map.energy)  # Create fresh copy of energy positions
+        self._boost = list(self.map.boost)    # Create fresh copy of boost positions
         self._lastkeypress = "d" 
         self._score = INITIAL_SCORE 
-        self._lives = self._initial_lives 
+        self._lives = self._initial_lives
 
     def stop(self):
         logger.info("GAME OVER")
@@ -130,7 +143,7 @@ class Game:
         self._running = False
 
     def save_highscores(self):
-        #update highscores
+        """Update highscores"""
         logger.debug("Save highscores")
         logger.info("FINAL SCORE <%s>: %s", self._player_name, self.score)
         self._highscores.append((self._player_name, self.score))

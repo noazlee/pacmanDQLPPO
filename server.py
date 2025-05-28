@@ -207,7 +207,7 @@ if __name__ == "__main__":
     parser.add_argument("--level", help="difficulty level of ghosts", choices=['0','1','2','3'], default='1')
     parser.add_argument("--lives", help="Number of lives", type=int, default=3)
     parser.add_argument("--timeout", help="Timeout after this amount steps", type=int, default=3000)
-    parser.add_argument("--map", help="path to the map bmp", default="data/map1.bmp")
+    parser.add_argument("--map", help="path to the map bmp", default="data/fixed_classic.bmp")
     parser.add_argument("--grading-server", help="url of grading server", default=None)
     args = parser.parse_args()
 

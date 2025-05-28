@@ -53,7 +53,7 @@ class Map:
                 # Try to match colors more flexibly
                 if self.is_black_ish(p):  # Wall
                     continue
-                elif self.is_red_ish(p):  # Likely boost
+                elif self.is_blue_ish(p):  # Likely boost
                     self._boost.append((x,y))
                 elif self.is_light_green_ish(p):  # Likely pacman spawn
                     self._pacman_spawn = (x, y)
@@ -106,11 +106,11 @@ class Map:
         b = color & 0xFF
         return r < 50 and g < 50 and b < 50
 
-    def is_red_ish(self, color):
+    def is_blue_ish(self, color):
         """Check if color is red/orange (boost items)"""
-        r = (color >> 16) & 0xFF
+        r = color & 0xFF
         g = (color >> 8) & 0xFF
-        b = color & 0xFF
+        b = (color >> 16) & 0xFF
         return r > 150 and g < 100 and b < 100
 
     def is_light_green_ish(self, color):

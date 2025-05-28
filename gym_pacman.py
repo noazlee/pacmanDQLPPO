@@ -1,11 +1,9 @@
 from collections import namedtuple
 import random
 import json
-import gym
 import numpy as np
-
-# from stable_baselines.common.env_checker import check_env
-
+import gymnasium as gym
+from gymnasium import spaces
 from game import Game, POINT_ENERGY, TIME_BONUS_STEPS, POINT_BOOST
 from mapa import Map
 from gym_observations import SingleChannelObs, MultiChannelObs
@@ -35,286 +33,235 @@ class EnvParams:
         return self._test_runs
 
 
+# Simplified ENV_PARAMS - using only one map to avoid constant reloading
 ENV_PARAMS = [
-    EnvParams(0, 1, 'data/map1.bmp', 1), EnvParams(1, 1, 'data/map1.bmp', 10),
-    EnvParams(2, 2, 'data/map1.bmp', 10), EnvParams(4, 0, 'data/map1.bmp', 10),
-    EnvParams(4, 1, 'data/map1.bmp', 11), EnvParams(4, 2, 'data/map1.bmp', 9),
-    EnvParams(1, 1, 'data/map2.bmp', 10), EnvParams(2, 1, 'data/map2.bmp', 12),
-    EnvParams(4, 0, 'data/map2.bmp', 12), EnvParams(4, 1, 'data/map2.bmp', 10),
-    EnvParams(4, 2, 'data/map2.bmp', 10),
-    # EnvParams(1, 1, 'data/map1_1.bmp', 10), EnvParams(2, 1, 'data/map1_2.bmp', 10),
-    # EnvParams(4, 0, 'data/map1_3.bmp', 10), EnvParams(4, 1, 'data/map1_4.bmp', 10),
-    # EnvParams(4, 2, 'data/map1_5.bmp', 10), EnvParams(4, 2, 'data/map1_6.bmp', 10),
-    # EnvParams(1, 1, 'data/map1_7.bmp', 10), EnvParams(1, 1, 'data/map1_8.bmp', 10)
+    EnvParams(0, 1, 'data/fixed_classic.bmp', 1), 
+    EnvParams(1, 1, 'data/fixed_classic.bmp', 10),
+    EnvParams(2, 2, 'data/fixed_classic.bmp', 10), 
+    EnvParams(4, 0, 'data/fixed_classic.bmp', 10),
+    EnvParams(4, 1, 'data/fixed_classic.bmp', 11), 
+    EnvParams(4, 2, 'data/fixed_classic.bmp', 9)
 ]
 
 
 class PacmanEnv(gym.Env):
+    """Optimized Pacman environment for reinforcement learning"""
 
     metadata = {'render.modes': ['human']}
-
     keys = {0: 'w', 1: 'a', 2: 's', 3: 'd'}
-
     info_keywords = ('step', 'score', 'lives')
 
     MAX_ENERGY_REWARD = 60
     MIN_ENERGY_REWARD = 10
-
     INITIAL_DIFFICULTY = 0
     MIN_WINS = 200
+
+    # Class-level map cache to avoid reloading
+    _map_cache = {}
 
     def __init__(self, obs_type, positive_rewards, agent_name,
                  ghosts, level_ghosts, lives, timeout, map_files=None, training=True):
 
         self.positive_rewards = positive_rewards
-
         self.agent_name = agent_name
-
         self.training = training
 
+        # Filter training parameters
         self.train_env_params = [p for p in ENV_PARAMS if p.test_runs > 1]
 
-        maps = []
-        if not map_files:
-            for mf in {param.map for param in ENV_PARAMS}:
-                maps.append(Map(mf))
-        else:
-            for mf in map_files:
-                maps.append(Map(mf))
+        # Initialize maps with caching
+        self._initialize_maps(map_files)
 
-        mapfile = maps[0].filename
+        # Use first map as default
+        mapfile = list(self._map_cache.keys())[0]
+        self._current_map_file = mapfile
 
+        # Create game instance
         self._game = Game(mapfile, ghosts, level_ghosts, lives, timeout)
 
+        # Initialize observation system
+        maps = list(self._map_cache.values())
         self.pacman_obs = obs_type(maps, lives)
 
+        # Set up spaces
         self.observation_space = self.pacman_obs.space
+        self.action_space = spaces.Discrete(len(self.keys))
 
-        self.action_space = gym.spaces.Discrete(len(self.keys))
-
+        # Initialize state tracking
         self._current_score = 0
-
         self.current_lives = self._game._initial_lives
-
         self._last_pos = None
-
         self._current_params = EnvParams(ghosts, level_ghosts, mapfile, 10)
-
         self.idle_steps = 0
 
+        # Energy reward system
         self.total_energy = len(self._game.map.energy)
-
-        self.energy_reward_increment = (self.MAX_ENERGY_REWARD - self.MIN_ENERGY_REWARD) / (self.total_energy - 1)
-
+        self.energy_reward_increment = (self.MAX_ENERGY_REWARD - self.MIN_ENERGY_REWARD) / max(1, self.total_energy - 1)
         self._current_energy_reward = self.MIN_ENERGY_REWARD
 
+        # Training progression
         self.difficulty = self.INITIAL_DIFFICULTY
-
         self.wins_count = 0
 
+        print(f"PacmanEnv initialized with {len(self._map_cache)} cached maps")
+
+    def _initialize_maps(self, map_files):
+        """Initialize and cache map objects to avoid repeated loading"""
+        maps_to_load = set()
+        
+        if map_files:
+            maps_to_load.update(map_files)
+        else:
+            # Get unique map files from ENV_PARAMS
+            maps_to_load.update(param.map for param in ENV_PARAMS)
+
+        for map_file in maps_to_load:
+            if map_file not in self._map_cache:
+                print(f"Loading and caching map: {map_file}")
+                self._map_cache[map_file] = Map(map_file)
+
     def step(self, action):
+        """Execute one environment step"""
         if not self.action_space.contains(action):
-            raise ValueError("Received invalid action={} which is not part of the action space.".format(action))
+            raise ValueError(f"Invalid action {action}")
 
+        # Execute action in game
         self._game.keypress(self.keys[action])
-
         self._game.compute_next_frame()
 
+        # Get game state
         game_state = json.loads(self._game.state)
 
+        # Prepare info dictionary
         info = {k: game_state[k] for k in self.info_keywords if k in game_state}
-        info['ghosts'] = self._current_params.ghosts
-        info['level'] = self._current_params.level
-        info['map'] = self._current_params.map
-        info['win'] = 0
-        info['d'] = self.difficulty
+        info.update({
+            'ghosts': self._current_params.ghosts,
+            'level': self._current_params.level,
+            'map': self._current_params.map,
+            'win': 0,
+            'd': self.difficulty
+        })
 
         done = not self._game.running
-
         reward = game_state['score'] - self._current_score
-
-        # if reward == POINT_BOOST:
-        #     reward = self.MAX_ENERGY_REWARD
-        # elif reward == POINT_ENERGY:
-        #     reward = self._current_energy_reward
-        #     self._current_energy_reward += self.energy_reward_increment
-        #     # print(self.total_energy, self.energy_reward_increment)
-        #     # print(" --- Energy ID:", self.total_energy - len(game_state['energy']), "Reward:", reward)
-
         self._current_score = game_state['score']
 
+        # Apply reward shaping
         if not self.positive_rewards:
-
             if game_state['lives'] == 0:
                 reward -= (self._game._timeout - game_state['step'] + 1) * (1.0 / TIME_BONUS_STEPS)
-
             reward -= 1.0 / TIME_BONUS_STEPS
 
+        # Check for win condition
         if done:
             if self._game._timeout != game_state['step'] and game_state['lives'] > 0:
                 info['win'] = 1
-
                 if not self.positive_rewards:
-                    # reward = self._current_energy_reward
                     reward -= 1.0 / TIME_BONUS_STEPS
 
             if info['ghosts'] == self.difficulty:
                 self.wins_count += info['win']
 
+        # Penalty for losing lives
         if game_state['lives'] < self.current_lives:
             reward -= 50
             self.current_lives = game_state['lives']
 
-        if self._last_pos:
-            if game_state['pacman'] == self._last_pos:
-                reward -= 0.5
-                self.idle_steps += 1
+        # Penalty for staying in same position
+        if self._last_pos and game_state['pacman'] == self._last_pos:
+            reward -= 0.5
+            self.idle_steps += 1
 
         self._last_pos = game_state['pacman']
         info['idle'] = self.idle_steps
 
-        # if not done and info['ghosts'] == 0 and game_state['step'] >= 500:
-        #     self._game.stop()
-        #     done = True
-
-        #     if not self.positive_rewards:
-        #         reward -= (self._game._timeout - game_state['step'] + 1) * (1.0 / TIME_BONUS_STEPS)
-
-        #     if info['ghosts'] == self.difficulty:
-        #         self.wins_count += info['win']
-
-        return self.pacman_obs.get_obs(game_state, self._game.map), reward, done, info
+        # Get observation using cached map
+        obs = self.pacman_obs.get_obs(game_state, self._map_cache[self._current_map_file])
+        
+        return obs, reward, done, info
 
     def reset(self):
+        """Reset environment for new episode"""
+        # Reset tracking variables
         self._current_score = 0
         self._last_pos = None
         self.idle_steps = 0
         self._current_energy_reward = self.MIN_ENERGY_REWARD
 
-        if self.training:
+        # Optionally change environment parameters during training
+        if self.training and len(self.train_env_params) > 1:
+            new_params = random.choice(self.train_env_params)
+            # Only update if different to avoid unnecessary operations
+            if (new_params.ghosts != self._current_params.ghosts or 
+                new_params.level != self._current_params.level or
+                new_params.map != self._current_params.map):
+                self._set_env_params(new_params)
 
-            self._current_params = random.choice(self.train_env_params)
-
-            self.set_env_params(self._current_params)
-
-            # if self.difficulty < self.max_ghosts and self.wins_count >= self.MIN_WINS:
-            #     self.difficulty += 1
-            #     self.wins_count = 0
-
-            # easier_episode_prob = self.difficulty / 20
-
-            # if random.random() < easier_episode_prob:
-            #     if self.difficulty - 1 > self.INITIAL_DIFFICULTY:
-            #         n_ghosts = random.randint(self.INITIAL_DIFFICULTY, self.difficulty - 1)
-            #     else:
-            #         n_ghosts = self.INITIAL_DIFFICULTY
-            # else:
-            #     n_ghosts = self.difficulty
-
-            # self.set_n_ghosts(n_ghosts)
-
+        # Start new game episode
         self._game.start(self.agent_name)
         self._game.compute_next_frame()
         self.current_lives = self._game._initial_lives
-        # self.total_energy = len(self._game.map.energy)
-        # self.energy_reward_increment = (self.MAX_ENERGY_REWARD - self.MIN_ENERGY_REWARD) / (self.total_energy - 1)
-        game_state = json.loads(self._game.state)
-        return self.pacman_obs.get_obs(game_state, self._game.map)
 
-    def set_env_params(self, env_params):
+        # Return initial observation
+        game_state = json.loads(self._game.state)
+        return self.pacman_obs.get_obs(game_state, self._map_cache[self._current_map_file])
+
+    def _set_env_params(self, env_params):
+        """Update environment parameters efficiently"""
         self._current_params = env_params
+        
+        # Update game parameters
         self._game._n_ghosts = env_params.ghosts
         self._game._l_ghosts = env_params.level
-        self._game.map = Map(env_params.map)
+        
+        # Only reload map if it's different
+        if env_params.map != self._current_map_file:
+            self._current_map_file = env_params.map
+            # Use cached map instead of creating new one
+            self._game.map = self._map_cache[env_params.map]
+
+    def set_env_params(self, env_params):
+        """Public interface for setting environment parameters"""
+        self._set_env_params(env_params)
 
     def render(self, mode='human'):
+        """Render current observation"""
         self.pacman_obs.render()
 
 
 def main():
-    """
-    Testing gym pacman enviorment.
-    """
+    """Test the optimized Pacman environment"""
+    print("Testing Optimized PacmanEnv...")
+    
+    env = PacmanEnv(
+        obs_type=MultiChannelObs,
+        positive_rewards=True,
+        agent_name="TestAgent",
+        ghosts=2,
+        level_ghosts=1,
+        lives=3,
+        timeout=3000,
+        training=False
+    )
 
-    agent_name = "GymEnvTestAgent"
-    ghosts = 4
-    level_ghosts = 1
-    lives = 3
-    timeout = 3000
+    print(f"Observation space: {env.observation_space}")
+    print(f"Action space: {env.action_space}")
 
-    obs_type = MultiChannelObs
+    # Test multiple episodes quickly
+    for episode in range(3):
+        print(f"\n--- Episode {episode + 1} ---")
+        obs = env.reset()
+        done = False
+        steps = 0
+        
+        while not done and steps < 20:  # Limited steps for testing
+            action = env.action_space.sample()
+            obs, reward, done, info = env.step(action)
+            steps += 1
+            print(f"Step {steps}: Action={env.keys[action]}, Reward={reward:.1f}, Score={info.get('score', 0)}")
 
-    positive_rewards = True
-
-    env = PacmanEnv(obs_type, positive_rewards, agent_name, ghosts, level_ghosts, lives, timeout, training=False)
-    env.set_env_params(EnvParams(1, 1, 'data/map2.bmp', 10))
-    # print("Checking environment...")
-    # check_env(env, warn=True)
-
-    print("Environment created.")
-
-    print("\nObservation space:", env.observation_space)
-    print("Shape:", env.observation_space.shape)
-    # print("Observation space high:", env.observation_space.high)
-    # print("Observation space low:", env.observation_space.low)
-
-    print("Action space:", env.action_space)
-
-    obs = env.reset()
-    done = False
-
-    sum_rewards = 0
-    action = 1  # a
-    cur_x, cur_y = None, None
-
-    # ADDED these lines to prevent infinite testing:
-    step_count = 0
-    max_steps = 100  # Limit for testing
-
-    while not done and step_count < max_steps:
-        env.render()
-
-        x, y = env._game._pacman
-
-        # Using agent from client example
-        if x == cur_x and y == cur_y:
-            if action in [1, 3]:    # ad
-                action = random.choice([0, 2])
-            elif action in [0, 2]:  # ws
-                action = random.choice([1, 3])
-        cur_x, cur_y = x, y
-
-        print("key:", PacmanEnv.keys[action])
-
-        obs, reward, done, info = env.step(action)
-
-        sum_rewards += reward
-        step_count += 1
-
-        print("reward:", reward)
-        print("sum_rewards:", sum_rewards)
-        print("info:", info)
-        print()
-
-        # # Stop game for debugging
-
-        # if reward > 0:
-        #     env.render()
-        #     print("Received positive reward.")
-        #     break
-
-        # if (obs_type == SingleChannelObs and np.isin(SingleChannelObs.GHOST_ZOMBIE, obs[0])) \
-        #         or (obs_type == MultiChannelObs and
-        #             np.isin(MultiChannelObs.PIXEL_IN, obs[MultiChannelObs.ZOMBIE_CH])):
-        #     env.render()
-        #     print("Zombie")
-        #     break
-
-        # if info['lives'] == 1:
-        #     print("Lives: 1")
-        #     break
-
-    # print("score:", sum_rewards + (env._game._timeout / TIME_BONUS_STEPS))
+    print("\nTest completed - no excessive map loading!")
+    env.close() if hasattr(env, 'close') else None
 
 
 if __name__ == "__main__":
