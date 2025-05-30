@@ -75,7 +75,7 @@ class ImprovedDQLAgent():
         return np.argmax(q_values_noisy)
     
     def train(self, episodes=20000, render_freq=0, save_freq=2000):
-        print("🚀 Starting FIXED DQL training with policy collapse prevention")
+        print("Starting FIXED DQL training with policy collapse prevention")
         print("="*70)
         
         # Create environment with simpler start
@@ -103,7 +103,7 @@ class ImprovedDQLAgent():
                     # Initialize output layer to small values near zero
                     nn.init.uniform_(m.weight, -0.001, 0.001)
                     nn.init.constant_(m.bias, 0.0)
-                    print(f"✅ Output layer initialized safely: {m.weight.data.abs().max().item():.6f}")
+                    print(f"Output layer initialized safely: {m.weight.data.abs().max().item():.6f}")
                 else:
                     nn.init.xavier_uniform_(m.weight)
                     if m.bias is not None:
@@ -140,7 +140,7 @@ class ImprovedDQLAgent():
         episodes_since_improvement = 0
         
         # Check initial Q-values
-        print("\n🔍 Checking initial Q-values...")
+        print("\nChecking initial Q-values...")
         with torch.no_grad():
             dummy_state = env.reset()
             dummy_tensor = torch.FloatTensor(dummy_state).unsqueeze(0).to(self.device)
@@ -217,7 +217,7 @@ class ImprovedDQLAgent():
                         if len(loss_history) > 100:
                             recent_loss = np.mean(loss_history[-100:])
                             if recent_loss > 100:  # Loss explosion
-                                print(f"⚠️  Training instability detected at episode {episode}, loss: {recent_loss:.2f}")
+                                print(f"Training instability detected at episode {episode}, loss: {recent_loss:.2f}")
                 
                 state = next_state
                 step_count += 1
@@ -245,9 +245,9 @@ class ImprovedDQLAgent():
             if episode_steps > 10:  # Only check if episode was long enough
                 max_action_pct = max(episode_actions) / sum(episode_actions)
                 if max_action_pct > 0.8 and episode > 100:
-                    print(f"⚠️  Policy collapse warning at episode {episode}: {max_action_pct:.1%} bias toward one action")
+                    print(f"Policy collapse warning at episode {episode}: {max_action_pct:.1%} bias toward one action")
                     if max_action_pct > 0.95:
-                        print(f"🚨 STOPPING: Complete policy collapse detected!")
+                        print(f"STOPPING: Complete policy collapse detected!")
                         break
             
             # Progress reporting 
