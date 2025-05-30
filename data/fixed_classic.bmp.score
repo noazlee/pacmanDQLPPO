@@ -1,1 +1,1 @@
-[["SimpleAI", 72], ["SimpleAI", 60], ["DQLAgent", 56], ["DQLAgent", 46], ["DQLAgent", 41], ["DQLAgent", 40], ["SimpleAI", 39], ["SimpleAI", 34], ["DQLAgent", 25], ["DQLAgent", 24]]
+[["fixed_dql", 164], ["fixed_dql", 146], ["fixed_dql", 140], ["improved_dql", 138], ["improved_dql", 135], ["improved_dql", 134], ["fixed_dql", 134], ["fixed_dql", 132], ["fixed_dql", 120], ["FinalFixedDQLAgent", 118]]

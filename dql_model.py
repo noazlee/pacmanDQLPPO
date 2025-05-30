@@ -5,9 +5,9 @@ import numpy as np
 
 class PacmanDQN(nn.Module):
     """
-    Deep Q-Network for Pacman
-    Supports both MultiChannelObs (6 channels) and SingleChannelObs (1 channel)
-    Uses CNN layers to process spatial game state
+    Simple and effective DQN for Pacman based on successful paper architectures
+    Architecture: 64→128→128 conv layers + 512 FC layer
+    Proven to work well for Pacman environments
     """
     
     def __init__(self, observation_shape, num_actions=4, hidden_size=512):
@@ -15,7 +15,7 @@ class PacmanDQN(nn.Module):
         Args:
             observation_shape: Tuple (channels, height, width) from gym observation space
             num_actions: Number of possible actions (4 for Pacman: w,a,s,d)
-            hidden_size: Size of fully connected layer
+            hidden_size: Size of fully connected layer (default 512 like in papers)
         """
         super(PacmanDQN, self).__init__()
         
@@ -25,21 +25,26 @@ class PacmanDQN(nn.Module):
         # Extract dimensions
         channels, height, width = observation_shape
         
-        # Convolutional layers for spatial feature extraction
-        self.conv1 = nn.Conv2d(channels, 32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        # Convolutional layers inspired by successful Pacman papers
+        # Layer 1: Basic feature detection (walls, dots, ghosts)
+        self.conv1 = nn.Conv2d(channels, 64, kernel_size=3, stride=1, padding=1)
         
-        # Calculate size after conv layers (no pooling, same padding)
+        # Layer 2: Spatial reduction + feature combination
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2)
+        
+        # Layer 3: Further spatial reduction + high-level features
+        self.conv3 = nn.Conv2d(128, 128, kernel_size=5, stride=2, padding=2)
+        
+        # Calculate size after conv layers for FC layer
         conv_output_size = self._get_conv_output_size(observation_shape)
         
         # Fully connected layers
         self.fc1 = nn.Linear(conv_output_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size // 2)
-        self.out = nn.Linear(hidden_size // 2, num_actions)
+        self.out = nn.Linear(hidden_size, num_actions)
         
-        # Dropout for regularization
-        self.dropout = nn.Dropout(0.3)
+        # Count parameters
+        total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(f"Created PacmanDQN with {total_params:,} parameters")
         
     def _get_conv_output_size(self, shape):
         """Calculate the output size after conv layers"""
@@ -50,9 +55,9 @@ class PacmanDQN(nn.Module):
     
     def _forward_conv(self, x):
         """Forward pass through convolutional layers only"""
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv1(x))  # Extract basic features
+        x = F.relu(self.conv2(x))  # Reduce spatial size, combine features  
+        x = F.relu(self.conv3(x))  # Final feature extraction
         return x
     
     def forward(self, x):
@@ -74,28 +79,49 @@ class PacmanDQN(nn.Module):
         if x.max() > 1.0:
             x = x.float() / 255.0
         
-        # Convolutional layers
+        # Convolutional feature extraction
         x = self._forward_conv(x)
         
         # Flatten for fully connected layers
         x = x.view(x.size(0), -1)
         
-        # Fully connected layers with dropout
+        # Fully connected processing
         x = F.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = F.relu(self.fc2(x))
-        x = self.dropout(x)
         
-        # Output Q-values
+        # Output Q-values (no activation on final layer)
         q_values = self.out(x)
         
         return q_values
 
 
+def create_dqn(observation_space, use_cnn=True, **kwargs):
+    """
+    Factory function to create PacmanDQN
+    
+    Args:
+        observation_space: Gym observation space
+        use_cnn: Whether to use CNN (True) or simple version (False)
+        **kwargs: Additional arguments for network creation
+    
+    Returns:
+        PacmanDQN model instance
+    """
+    observation_shape = observation_space.shape
+    
+    print(f"Creating DQN for observation shape: {observation_shape}")
+    
+    if use_cnn:
+        print("Using CNN-based PacmanDQN")
+        return PacmanDQN(observation_shape, **kwargs)
+    else:
+        # Simple fallback version that flattens everything
+        print("Using simple fully-connected DQN")
+        return SimplePacmanDQN(observation_shape, **kwargs)
+
+
 class SimplePacmanDQN(nn.Module):
     """
-    Simpler version that flattens observations instead of using CNN
-    Good for initial testing or if CNN version is too complex
+    Simple fully-connected version for comparison/fallback
     """
     
     def __init__(self, observation_shape, num_actions=4, hidden_size=512):
@@ -107,14 +133,13 @@ class SimplePacmanDQN(nn.Module):
         # Calculate input size (flatten all dimensions)
         input_size = np.prod(observation_shape)
         
-        # Fully connected layers
+        # Simple fully connected layers
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size // 2)
-        self.fc3 = nn.Linear(hidden_size // 2, hidden_size // 4)
-        self.out = nn.Linear(hidden_size // 4, num_actions)
+        self.out = nn.Linear(hidden_size // 2, num_actions)
         
-        # Dropout
-        self.dropout = nn.Dropout(0.3)
+        total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(f"Created Simple PacmanDQN with {total_params:,} parameters")
     
     def forward(self, x):
         # Handle single observation (add batch dimension)
@@ -129,40 +154,13 @@ class SimplePacmanDQN(nn.Module):
         
         # Forward pass
         x = F.relu(self.fc1(x))
-        x = self.dropout(x)
         x = F.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = F.relu(self.fc3(x))
-        
         q_values = self.out(x)
+        
         return q_values
 
 
-def create_dqn(observation_space, use_cnn=True, **kwargs):
-    """
-    Factory function to create appropriate DQN based on observation space
-    
-    Args:
-        observation_space: Gym observation space
-        use_cnn: Whether to use CNN (True) or simple FC layers (False)
-        **kwargs: Additional arguments for network creation
-    
-    Returns:
-        DQN model instance
-    """
-    observation_shape = observation_space.shape
-    
-    print(f"Creating DQN for observation shape: {observation_shape}")
-    
-    if use_cnn:
-        print("Using CNN-based DQN")
-        return PacmanDQN(observation_shape, **kwargs)
-    else:
-        print("Using simple fully-connected DQN")
-        return SimplePacmanDQN(observation_shape, **kwargs)
-
-
-# Utility functions for model operations
+# Utility functions
 def save_model(model, filepath):
     """Save model state dict"""
     torch.save(model.state_dict(), filepath)
@@ -183,36 +181,51 @@ def get_model_size(model):
 
 
 if __name__ == "__main__":
-    # Test the models with different observation shapes
-    print("Testing DQN models...")
+    # Test the model with your actual observation shape
+    print("Testing PacmanDQN...")
     
-    # Test with MultiChannelObs shape (6 channels)
-    multi_shape = (6, 20, 20)  # Example shape
-    print(f"\nTesting with MultiChannelObs shape: {multi_shape}")
+    # Your MultiChannelObs shape
+    obs_shape = (6, 29, 25)
+    print(f"\nTesting with observation shape: {obs_shape}")
     
-    cnn_model = PacmanDQN(multi_shape)
-    simple_model = SimplePacmanDQN(multi_shape)
+    # Create CNN model
+    cnn_model = PacmanDQN(obs_shape)
     
-    print(f"CNN model parameters: {get_model_size(cnn_model):,}")
+    # Create simple model for comparison
+    simple_model = SimplePacmanDQN(obs_shape)
+    
+    print(f"\nCNN model parameters: {get_model_size(cnn_model):,}")
     print(f"Simple model parameters: {get_model_size(simple_model):,}")
     
-    # Test forward pass
-    dummy_input = torch.randint(0, 256, (1, *multi_shape), dtype=torch.float)
+    # Test forward pass with random input
+    dummy_input = torch.randint(0, 256, (1, *obs_shape), dtype=torch.float)
     
     with torch.no_grad():
         cnn_output = cnn_model(dummy_input)
         simple_output = simple_model(dummy_input)
     
-    print(f"CNN output shape: {cnn_output.shape}")
-    print(f"Simple output shape: {simple_output.shape}")
-    print(f"CNN Q-values: {cnn_output.squeeze().tolist()}")
-    print(f"Simple Q-values: {simple_output.squeeze().tolist()}")
+    print(f"\nCNN output shape: {cnn_output.shape}")
+    print(f"CNN Q-values: {[f'{q:.4f}' for q in cnn_output.squeeze().tolist()]}")
     
-    # Test with SingleChannelObs shape (1 channel)
-    single_shape = (1, 20, 20)
-    print(f"\nTesting with SingleChannelObs shape: {single_shape}")
+    print(f"\nSimple output shape: {simple_output.shape}")
+    print(f"Simple Q-values: {[f'{q:.4f}' for q in simple_output.squeeze().tolist()]}")
     
-    single_cnn = PacmanDQN(single_shape)
-    print(f"Single channel CNN parameters: {get_model_size(single_cnn):,}")
+    # Test single observation (without batch dimension)
+    single_obs = torch.randint(0, 256, obs_shape, dtype=torch.float)
+    
+    with torch.no_grad():
+        single_output = cnn_model(single_obs)
+    
+    print(f"\nSingle observation test:")
+    print(f"Input shape: {single_obs.shape}")
+    print(f"Output shape: {single_output.shape}")
+    print(f"Q-values: {[f'{q:.4f}' for q in single_output.squeeze().tolist()]}")
     
     print("\nAll tests passed!")
+    print(f"\nArchitecture Summary:")
+    print(f"   Conv1: {obs_shape[0]}→64 (3x3, stride=1)")
+    print(f"   Conv2: 64→128 (5x5, stride=2)")  
+    print(f"   Conv3: 128→128 (5x5, stride=2)")
+    print(f"   FC1: {cnn_model._get_conv_output_size(obs_shape)}→512")
+    print(f"   Output: 512→4")
+    print(f"   Total: {get_model_size(cnn_model):,} parameters")

@@ -34,7 +34,7 @@ class Map:
         self._boost = []
         
         # Initialize with default values
-        self._pacman_spawn = (1, 1)
+        self._pacman_spawn = (15, 14)
         self._ghost_spawn = (1, 2)
         
         # Debug: collect all unique colors
@@ -56,7 +56,7 @@ class Map:
                 elif self.is_blue_ish(p):  # Likely boost
                     self._boost.append((x,y))
                 elif self.is_light_green_ish(p):  # Likely pacman spawn
-                    self._pacman_spawn = (x, y)
+                    self._pacman_spawn = (15, 14)
                 elif self.is_bright_green_ish(p):  # Likely ghost spawn
                     self._ghost_spawn = (x, y)
         

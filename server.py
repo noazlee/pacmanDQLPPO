@@ -218,7 +218,7 @@ if __name__ == "__main__":
         
         # Simplified server setup - no path handling
         async with websockets.serve(g.handle_connection, args.bind, args.port):
-            logger.info(f"🎮 Pac-Man Server started on {args.bind if args.bind else 'localhost'}:{args.port}")
+            logger.info(f"Pac-Man Server started on {args.bind if args.bind else 'localhost'}:{args.port}")
             logger.info("All connections will be treated as players")
             logger.info("Connect with: ws://localhost:8000/")
             logger.info("Ready for players!")

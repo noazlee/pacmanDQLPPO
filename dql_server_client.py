@@ -13,12 +13,22 @@ from dql_model import create_dqn
 from gym_observations import MultiChannelObs
 from gym_pacman import PacmanEnv
 import os
+import argparse
+import sys
+
+
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='DQL Pacman Agent')
+    parser.add_argument('--model', default='fixed_dql_ep10000.pt',
+                       help='Path to the trained model file')
+    return parser.parse_args()
 
 
 class DQLServerClient:
     """DQL Agent that connects to Pacman server for real-time gameplay"""
     
-    def __init__(self, model_path="pacman_dqn_final.pt", server_address="localhost:8000"):
+    def __init__(self, model_path="fixed_dql_ep10000.pt", server_address="localhost:8000"):
         self.model_path = model_path
         self.server_address = server_address
         self.device = torch.device("cpu")
@@ -30,12 +40,15 @@ class DQLServerClient:
         # Create a dummy environment to get observation processor
         self.setup_observation_processor()
         
-        print(f"🤖 DQL Agent ready to connect to server at {server_address}")
+        print(f"DQL Agent ready to connect to server at {server_address}")
     
     def load_model(self):
         """Load the trained DQL model"""
-        if not os.path.exists(self.model_path):
-            print(f"❌ Model file {self.model_path} not found!")
+        # Check for environment variable first (for evaluation script)
+        model_path = os.environ.get('DQL_MODEL_PATH', self.model_path)
+        
+        if not os.path.exists(model_path):
+            print(f"Model file {model_path} not found!")
             print("The agent will play randomly.")
             return
         
@@ -54,10 +67,10 @@ class DQLServerClient:
             
             # Create and load model
             self.policy_dqn = create_dqn(dummy_env.observation_space, use_cnn=True).to(self.device)
-            self.policy_dqn.load_state_dict(torch.load(self.model_path, map_location=self.device))
+            self.policy_dqn.load_state_dict(torch.load(model_path, map_location=self.device))
             self.policy_dqn.eval()
             
-            print(f"✅ Loaded trained model from {self.model_path}")
+            print(f"✅ Loaded trained model from {model_path}")
             dummy_env.close()
             
         except Exception as e:
@@ -116,7 +129,7 @@ class DQLServerClient:
         
         try:
             async with websockets.connect(f"ws://{self.server_address}/") as websocket:
-                print("✅ Connected to server!")
+                print("Connected to server!")
                 
                 # Join the game
                 join_msg = json.dumps({"cmd": "join", "name": agent_name})
@@ -125,7 +138,7 @@ class DQLServerClient:
                 # Receive game info
                 game_info_msg = await websocket.recv()
                 game_info = json.loads(game_info_msg)
-                print(f"🎮 Game info received: {game_info.get('map', 'unknown map')}")
+                print(f"Game info received: {game_info.get('map', 'unknown map')}")
                 
                 step_count = 0
                 last_score = 0
@@ -141,12 +154,12 @@ class DQLServerClient:
                         if 'lives' in game_state:
                             if game_state['lives'] == 0:
                                 final_score = game_state.get('score', 0)
-                                print(f"🎯 GAME OVER! Final Score: {final_score}")
+                                print(f"GAME OVER! Final Score: {final_score}")
                                 break
                         else:
                             # Game completed successfully
                             final_score = game_state.get('score', 0)
-                            print(f"🏆 VICTORY! Final Score: {final_score}")
+                            print(f"VICTORY! Final Score: {final_score}")
                             break
                         
                         # Get action from trained model
@@ -160,41 +173,47 @@ class DQLServerClient:
                         current_score = game_state.get('score', 0)
                         
                         # Print progress occasionally
-                        if step_count % 50 == 0 or current_score > last_score:
+                        if step_count % 4 == 0 or current_score > last_score:
                             lives = game_state.get('lives', 0)
                             print(f"Step {step_count:3d} | Score: {current_score:3d} | Lives: {lives} | Action: {action}")
                             last_score = current_score
                         
                     except websockets.exceptions.ConnectionClosed:
-                        print("🔌 Connection closed by server")
+                        print("Connection closed by server")
                         break
                     except json.JSONDecodeError as e:
-                        print(f"❌ JSON decode error: {e}")
+                        print(f"JSON decode error: {e}")
                         continue
                     except KeyboardInterrupt:
-                        print("🛑 Interrupted by user")
+                        print("Interrupted by user")
                         break
                     except Exception as e:
-                        print(f"❌ Unexpected error: {e}")
+                        print(f"Unexpected error: {e}")
                         continue
                         
         except Exception as e:
-            print(f"❌ Connection error: {e}")
+            print(f"Connection error: {e}")
             print("Make sure the server is running:")
             print("  python server.py --map data/fixed_classic.bmp --ghosts 2")
 
 
 async def main():
     """Main function to run DQL agent on server"""
-    print("🤖 DQL Agent Server Client")
+    print("DQL Agent Server Client")
     print("="*50)
     
-    # You can specify different model files
-    model_path = "pacman_dqn_final.pt"
+    # Parse command line arguments
+    args = parse_arguments()
+    model_path = args.model
+    
+    # Check for environment variable (used by evaluation script)
+    if 'DQL_MODEL_PATH' in os.environ:
+        model_path = os.environ['DQL_MODEL_PATH']
+        print(f"Using model from environment: {model_path}")
     
     # Check if model exists
     if os.path.exists(model_path):
-        print(f"✅ Using model: {model_path}")
+        print(f"Using model: {model_path}")
     else:
         print(f"⚠️  Model {model_path} not found - agent will play randomly")
     

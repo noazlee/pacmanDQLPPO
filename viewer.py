@@ -219,9 +219,9 @@ async def main_loop(q):
     images = None
     try:
         images = pygame.image.load("data/sprites/spritemap.png")
-        print("✓ Loaded sprite images")
+        print(" Loaded sprite images")
     except:
-        print("⚠ Could not load sprites - using colored rectangles")
+        print("Could not load sprites - using colored rectangles")
    
     logging.info("Waiting for map information from server") 
     
@@ -231,13 +231,13 @@ async def main_loop(q):
 
     try:
         newgame_json = json.loads(state)
-        print(f"✓ Parsed game info: {list(newgame_json.keys())}")
+        print(f"Parsed game info: {list(newgame_json.keys())}")
         
         mapa = Map(newgame_json["map"])
-        print(f"✓ Loaded map: {mapa.size}")
+        print(f"Loaded map: {mapa.size}")
         
         GAME_SPEED = newgame_json.get("fps", 10)
-        print(f"✓ Game speed: {GAME_SPEED} FPS")
+        print(f"Game speed: {GAME_SPEED} FPS")
         
     except Exception as e:
         print(f"Error parsing initial game info: {e}")
@@ -248,7 +248,7 @@ async def main_loop(q):
     
     SCREEN = pygame.display.set_mode(scale(mapa.size))
     pygame.display.set_caption("Pac-Man Live Game")
-    print(f"✓ Created display: {scale(mapa.size)}")
+    print(f"Created display: {scale(mapa.size)}")
    
     draw_background(mapa, SCREEN)
     
@@ -259,13 +259,13 @@ async def main_loop(q):
     for i in range(n_ghosts):
         main_group.add(Ghost(pos=scale(mapa.ghost_spawn), images=images, index=i))
     
-    print(f"✓ Created {n_ghosts+1} sprites")
+    print(f"Created {n_ghosts+1} sprites")
     
     state = dict()
     game_active = False
     last_update = time.time()
     
-    print("🎮 Starting main game loop...")
+    print("Starting main game loop...")
     
     while True:
         # Handle pygame events
@@ -347,7 +347,7 @@ async def main():
     
     ws_path = f'ws://{args.server}:{args.port}/'
     
-    print("🎮 Starting Pac-Man Viewer")
+    print("Starting Pac-Man Viewer")
     print(f"Connecting to: {ws_path}")
     
     try:

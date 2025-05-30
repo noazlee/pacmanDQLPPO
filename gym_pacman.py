@@ -2,8 +2,8 @@ from collections import namedtuple
 import random
 import json
 import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
+import gym as gym
+from gym import spaces
 from game import Game, POINT_ENERGY, TIME_BONUS_STEPS, POINT_BOOST
 from mapa import Map
 from gym_observations import SingleChannelObs, MultiChannelObs
@@ -35,12 +35,12 @@ class EnvParams:
 
 # Simplified ENV_PARAMS - using only one map to avoid constant reloading
 ENV_PARAMS = [
-    EnvParams(0, 1, 'data/fixed_classic.bmp', 1), 
-    EnvParams(1, 1, 'data/fixed_classic.bmp', 10),
-    EnvParams(2, 2, 'data/fixed_classic.bmp', 10), 
-    EnvParams(4, 0, 'data/fixed_classic.bmp', 10),
-    EnvParams(4, 1, 'data/fixed_classic.bmp', 11), 
-    EnvParams(4, 2, 'data/fixed_classic.bmp', 9)
+    EnvParams(0, 0, 'data/fixed_classic.bmp', 1), 
+    # EnvParams(1, 1, 'data/fixed_classic.bmp', 10),
+    # EnvParams(2, 2, 'data/fixed_classic.bmp', 10), 
+    # EnvParams(4, 0, 'data/fixed_classic.bmp', 10),
+    # EnvParams(4, 1, 'data/fixed_classic.bmp', 11), 
+    # EnvParams(4, 2, 'data/fixed_classic.bmp', 9)
 ]
 
 
@@ -120,19 +120,17 @@ class PacmanEnv(gym.Env):
                 print(f"Loading and caching map: {map_file}")
                 self._map_cache[map_file] = Map(map_file)
 
+
     def step(self, action):
-        """Execute one environment step"""
         if not self.action_space.contains(action):
             raise ValueError(f"Invalid action {action}")
 
-        # Execute action in game
+        # Execute action
         self._game.keypress(self.keys[action])
         self._game.compute_next_frame()
-
-        # Get game state
         game_state = json.loads(self._game.state)
 
-        # Prepare info dictionary
+        # Info dict
         info = {k: game_state[k] for k in self.info_keywords if k in game_state}
         info.update({
             'ghosts': self._current_params.ghosts,
@@ -143,59 +141,62 @@ class PacmanEnv(gym.Env):
         })
 
         done = not self._game.running
-        reward = game_state['score'] - self._current_score
-        self._current_score = game_state['score']
-
-        # Apply reward shaping
-        if not self.positive_rewards:
-            if game_state['lives'] == 0:
-                reward -= (self._game._timeout - game_state['step'] + 1) * (1.0 / TIME_BONUS_STEPS)
-            reward -= 1.0 / TIME_BONUS_STEPS
-
-        # Check for win condition
-        if done:
-            if self._game._timeout != game_state['step'] and game_state['lives'] > 0:
-                info['win'] = 1
-                if not self.positive_rewards:
-                    reward -= 1.0 / TIME_BONUS_STEPS
-
-            if info['ghosts'] == self.difficulty:
-                self.wins_count += info['win']
-
-        # Penalty for losing lives
+        
+        # *** COMPLETELY NEW REWARD STRUCTURE ***
+        reward = 0
+        
+        # 1. ONLY reward actual game progress
+        if game_state['score'] > self._current_score:
+            score_increase = game_state['score'] - self._current_score
+            if score_increase == 1:      # Energy dot
+                reward += 10
+                print(f"Energy collected! +10")
+            elif score_increase == 10:   # Power pellet  
+                reward += 50
+                print(f"Power pellet! +50")
+            elif score_increase == 50:   # Ghost eaten
+                reward += 25
+                print(f"Ghost eaten! +25")
+            else:
+                reward += score_increase * 2
+        
+        # 2. Small penalty for time (encourages efficiency)
+        reward -= 0.01
+        
+        # 3. Death penalty
         if game_state['lives'] < self.current_lives:
-            reward -= 50
+            reward -= 150
+            print(f"Death penalty: -150")
             self.current_lives = game_state['lives']
-
-        # Penalty for staying in same position
-        if self._last_pos and game_state['pacman'] == self._last_pos:
-            reward -= 0.5
-            self.idle_steps += 1
-
+        
+        # 4. End game rewards
+        if done:
+            items_remaining = len(game_state['energy']) + len(game_state['boost'])
+            if items_remaining == 0:
+                reward += 500
+                info['win'] = 1
+                print(f"🏆 WIN BONUS: +500")
+            else:
+                reward -= 50
+                print(f"📉 Game over penalty: -50")
+        
+        
+        # Update tracking
+        self._current_score = game_state['score']
         self._last_pos = game_state['pacman']
-        info['idle'] = self.idle_steps
-
-        # Get observation using cached map
+        
+        # Get observation
         obs = self.pacman_obs.get_obs(game_state, self._map_cache[self._current_map_file])
         
         return obs, reward, done, info
 
     def reset(self):
-        """Reset environment for new episode"""
+        """Reset environment for new episode with curriculum learning"""
         # Reset tracking variables
         self._current_score = 0
         self._last_pos = None
         self.idle_steps = 0
         self._current_energy_reward = self.MIN_ENERGY_REWARD
-
-        # Optionally change environment parameters during training
-        if self.training and len(self.train_env_params) > 1:
-            new_params = random.choice(self.train_env_params)
-            # Only update if different to avoid unnecessary operations
-            if (new_params.ghosts != self._current_params.ghosts or 
-                new_params.level != self._current_params.level or
-                new_params.map != self._current_params.map):
-                self._set_env_params(new_params)
 
         # Start new game episode
         self._game.start(self.agent_name)
@@ -227,6 +228,119 @@ class PacmanEnv(gym.Env):
     def render(self, mode='human'):
         """Render current observation"""
         self.pacman_obs.render()
+
+    def get_curriculum_params(self, episode):
+        """
+        Progressive difficulty curriculum - gradually introduce ghosts and increase difficulty
+        
+        Args:
+            episode: Current training episode number
+            
+        Returns:
+            dict: Parameters for current difficulty level
+        """
+        
+        # Phase 1: Pure exploration and energy collection (0-10,000 episodes)
+
+        if episode < 5000:
+            return {
+                'ghosts': 0,
+                'level': 0,
+                'lives': 3,
+                'timeout': 400,  
+                'description': 'Phase 1: Learning efficient movement under time pressure'
+            }
+
+        if episode < 10000:
+            return {
+                'ghosts': 0,
+                'level': 0,
+                'lives': 5,
+                'timeout': 800,
+                'description': 'Phase 1: Learning basic movement and energy collection'
+            }
+        
+        # Phase 2: Introduction of 1 easy ghost (10,000-15,000 episodes)
+        elif episode < 15000:
+            return {
+                'ghosts': 1,
+                'level': 0,  # Level 0 = easiest ghost AI
+                'lives': 5,
+                'timeout': 2000,
+                'description': 'Phase 2: Learning ghost avoidance with 1 easy ghost'
+            }
+        
+        # Phase 3: 1 medium difficulty ghost (15,000-20,000 episodes)
+        elif episode < 20000:
+            return {
+                'ghosts': 1,
+                'level': 1,  # Level 1 = medium ghost AI
+                'lives': 4,
+                'timeout': 1800,
+                'description': 'Phase 3: Improving ghost avoidance with smarter ghost'
+            }
+        
+        # Phase 4: 2 easy ghosts (20,000-25,000 episodes)
+        elif episode < 25000:
+            return {
+                'ghosts': 2,
+                'level': 0,  # 2 easy ghosts
+                'lives': 4,
+                'timeout': 1800,
+                'description': 'Phase 4: Learning multi-ghost avoidance'
+            }
+        
+        # Phase 5: 2 medium difficulty ghosts (25,000+ episodes)
+        else:
+            return {
+                'ghosts': 2,
+                'level': 1,  # 2 medium ghosts
+                'lives': 3,  # Standard lives
+                'timeout': 1500,  # Shorter episodes for efficiency
+                'description': 'Phase 5: Final difficulty - 2 smart ghosts'
+            }
+
+    def apply_curriculum(self, episode):
+        """
+        Apply curriculum learning parameters at the start of training phases
+        
+        Args:
+            episode: Current episode number
+        """
+        # Only update curriculum at specific episode milestones
+        phase_boundaries = [0, 10000, 15000, 20000, 25000]
+        
+        if episode in phase_boundaries:
+            curriculum = self.get_curriculum_params(episode)
+            
+            print(f"\n{'='*60}")
+            print(f"CURRICULUM UPDATE AT EPISODE {episode}")
+            print(f"{curriculum['description']}")
+            print(f"Ghosts: {curriculum['ghosts']} (level {curriculum['level']})")
+            print(f" Lives: {curriculum['lives']}")
+            print(f"Timeout: {curriculum['timeout']}")
+            print(f"{'='*60}\n")
+            
+            # Update environment parameters
+            new_params = EnvParams(
+                ghosts=curriculum['ghosts'],
+                level=curriculum['level'], 
+                mapa=self._current_map_file,
+                test_runs=10
+            )
+            
+            # Update current parameters
+            self._current_params = new_params
+            
+            # Update game settings
+            self._game._n_ghosts = curriculum['ghosts']
+            self._game._l_ghosts = curriculum['level']
+            self._game._initial_lives = curriculum['lives']
+            self._game._timeout = curriculum['timeout']
+            
+            return True  # Indicates curriculum was updated
+        
+        return False  # No curriculum update needed
 
 
 def main():
