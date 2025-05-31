@@ -150,13 +150,13 @@ class PacmanEnv(gym.Env):
             score_increase = game_state['score'] - self._current_score
             if score_increase == 1:      # Energy dot
                 reward += 10
-                print(f"Energy collected! +10")
+                # print(f"Energy collected! +10")
             elif score_increase == 10:   # Power pellet  
                 reward += 50
-                print(f"Power pellet! +50")
+                # print(f"Power pellet! +50")
             elif score_increase == 50:   # Ghost eaten
                 reward += 25
-                print(f"Ghost eaten! +25")
+                # print(f"Ghost eaten! +25")
             else:
                 reward += score_increase * 2
         
@@ -166,7 +166,7 @@ class PacmanEnv(gym.Env):
         # 3. Death penalty
         if game_state['lives'] < self.current_lives:
             reward -= 150
-            print(f"Death penalty: -150")
+            # print(f"Death penalty: -150")
             self.current_lives = game_state['lives']
         
         # 4. End game rewards
@@ -175,10 +175,10 @@ class PacmanEnv(gym.Env):
             if items_remaining == 0:
                 reward += 500
                 info['win'] = 1
-                print(f"🏆 WIN BONUS: +500")
+                # print(f"🏆 WIN BONUS: +500")
             else:
                 reward -= 50
-                print(f"📉 Game over penalty: -50")
+                # print(f"Game over penalty: -50")
         
         
         # Update tracking
